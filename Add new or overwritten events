@@ -14,6 +14,8 @@ SELECT * FROM `analytics-oed-thd.Events.EVENTS_INPUTS_BREADCRUMBS_EXPANDED`
 WHERE cast(entrydate as date) = date_sub(CURRENT_DATE, INTERVAL 1 DAY)
 ;
 
+---TEST OF GITHUB EDITING-----
+
 set table_count = (select count(distinct event) from `analytics-oed-thd.Events.EVENTS_INPUTS_BREADCRUMBS_EXPANDED_NEW_OVERWRITTEN_EVENTS` where event is not null);
 
 if table_count >= 1 then 
