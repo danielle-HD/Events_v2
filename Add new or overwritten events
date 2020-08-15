@@ -1,0 +1,790 @@
+
+DECLARE Pre_Period_Start DATE DEFAULT '2019-8-20';
+DECLARE Pre_Period_End DATE DEFAULT '2019-9-30';
+DECLARE Post_Period_Start DATE DEFAULT '2020-8-12';
+DECLARE Post_Period_End DATE DEFAULT '2020-9-28';
+DECLARE table_count int64;
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_INPUTS_BREADCRUMBS_EXPANDED_NEW_OVERWRITTEN_EVENTS`
+
+AS
+
+SELECT * FROM `analytics-oed-thd.Events.EVENTS_INPUTS_BREADCRUMBS_EXPANDED`
+
+WHERE cast(entrydate as date) = date_sub(CURRENT_DATE, INTERVAL 1 DAY)
+;
+
+set table_count = (select count(distinct event) from `analytics-oed-thd.Events.EVENTS_INPUTS_BREADCRUMBS_EXPANDED_NEW_OVERWRITTEN_EVENTS` where event is not null);
+
+if table_count >= 1 then 
+
+----CREATE INPUTS TABLE FOR TOTAL HOLIDAY LOOK------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` AS
+
+(SELECT time_period, event, department_number, class_number, subclass_number, period_start, CEX.Period_end, prop30 event_prop30, Breadcrumb, Breadcrumb_Type
+
+FROM
+`analytics-oed-thd.Events.EVENTS_INPUTS_BREADCRUMBS_EXPANDED_NEW_OVERWRITTEN_EVENTS` CEX
+
+--WHERE event in (Event1,Event2,Event3,Event4,Event5)
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10)
+
+;
+
+---CREATE TABLE WITH ONLY EVENT, DCS, AND TIME PERIOD------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_CEX_DCS` AS (SELECT time_period, event, department_number, class_number, subclass_number, period_start, CEX.Period_end FROM `analytics-oed-thd.Events.EVENTS_INPUTS_BREADCRUMBS_EXPANDED_NEW_OVERWRITTEN_EVENTS` CEX  GROUP BY 1,2,3,4,5,6,7)
+
+;
+
+---CREATE TABLE WITH INTERNET SKU NBR AND DCS------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_PRODUCTS` AS (SELECT INTERNET_SKU_NBR, merch_dept_nbr, class, sub_class FROM `analytics-views-thd.NURO.PRODUCTS` WHERE Merch_Dept_Nbr <> '1' GROUP BY 1,2,3,4)
+
+;
+
+---CREATE TABLE WITH EVENT, ALL INTERNET SKU NBRS ATTACHED TO RELEVANT DCS, AND TIME PERIOD------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_CEX_PRODUCTS` AS (SELECT CEX.*, INTERNET_SKU_NBR 
+                 FROM `analytics-oed-thd.Events.EVENTS_CEX_DCS` cex
+                 INNER JOIN`analytics-oed-thd.Events.EVENTS_PRODUCTS`visits on trim(cast(CEX.Department_Number as string)) = trim(cast(Visits.Merch_dept_Nbr as string)) 
+and trim(CAST(visits.class AS STRING)) = trim(cast(CEX.class_number as string))
+and if(trim(cast(CEX.subclass_number as string)) is not null,trim(CAST(visits.sub_class AS STRING)) = trim(cast(CEX.subclass_number as string)),
+   trim(cast(CEX.Department_Number as string)) = trim(cast(Visits.Merch_dept_Nbr as string))) GROUP BY 1,2,3,4,5,6,7,8)
+   
+   ;
+   
+   ---CREATE TABLE WITH ALL VISITS TO RELEVANT BREADCRUMBS, WITH PAGE TYPES CAT, PLP, CONTENT, SPECIAL BUY, PPIP------
+ 
+     CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_TOP_VISIT` AS 
+     
+           (SELECT
+         Time_Period, event, marketing_channel, trim(cast(class_number as string)) as class_nbr, substr(trim(cast(department_number as string)),0,2) as dept_nbr,
+         username, partition_date, visit_id, evar17, breadcrumb_type, min(visit_page_num) as Min_Page_Num, max(visit_page_num) as Max_Page_Num
+                   
+            FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY`  b 
+            INNER JOIN  `analytics-oed-thd.Staged_Tables.SBOTD_Inf_Content` a on  (trim(UPPER(b.breadcrumb)) = trim(UPPER(a.evar17)))
+            WHERE
+            1=1
+            AND event_prop30 = prop30
+            AND (partition_date BETWEEN Pre_Period_Start AND Pre_Period_End OR partition_date BETWEEN Post_Period_Start AND Post_Period_End)
+            AND partition_date between period_start and b.Period_end
+            
+            GROUP BY 1,2,3,4,5,6,7,8,9,10
+            
+            UNION ALL 
+            
+            select 
+         Time_Period, event, marketing_channel, trim(cast(class_number as string)) as class_nbr, substr(trim(cast(department_number as string)),0,2) as dept_nbr,
+         username, partition_date, visit_id, evar17, breadcrumb_type, min(visit_page_num) as Min_Page_Num, max(visit_page_num) as Max_Page_Num
+                   
+            FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` b  
+            INNER JOIN  `analytics-oed-thd.Staged_Tables.Cat_PLP` a on  (trim(UPPER(b.breadcrumb)) = trim(UPPER(a.evar17)))
+            WHERE
+            1=1
+            AND event_prop30 = prop30
+            AND (partition_date BETWEEN Pre_Period_Start AND Pre_Period_End OR partition_date BETWEEN Post_Period_Start AND Post_Period_End)
+            AND partition_date between period_start and b.Period_end
+            
+            GROUP BY 1,2,3,4,5,6,7,8,9,10     
+            ) 
+   ;
+   
+   -----CREATE TABLE WITH ALL PIP VISITS TO RELEVANT DCS------
+   
+   
+   
+   CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_PIP` AS 
+   
+ (SELECT visit_id, event, Time_Period, class_number class_nbr, substr(trim(cast(department_number as string)),0,2) as dept_nbr, max(visit_page_num) as Max_Page_Num, min(visit_page_num) as Min_Page_Num
+                
+                        FROM  `analytics-oed-thd.Events.EVENTS_CEX_PRODUCTS` b
+                        INNER JOIN `analytics-oed-thd.Staged_Tables.PIP` a on trim(cast(INTERNET_SKU_NBR as string)) = trim(OMSID)
+                        WHERE
+                        1=1
+                        AND prop30 = 'pip'
+                        AND (partition_date BETWEEN Pre_Period_Start AND Pre_Period_End OR partition_date BETWEEN Post_Period_Start AND Post_Period_End)
+                        AND partition_date between period_start and b.Period_end
+              GROUP BY 1,2,3,4,5)
+   
+   ;
+   
+
+      -----CREATE TABLE WITH ALL CART ADD FROM PLP VISITS WITH RELEVANT DCS------
+   
+   CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_CART_ADDS_FROM_PLP` AS 
+    
+ (SELECT visit_id, Time_Period, event, class_number class_nbr, substr(trim(cast(department_number as string)),0,2) as dept_nbr, max(visit_page_num) as Max_Page_Num
+      
+            FROM (SELECT  visit_id, visit_page_num, Product, partition_date 
+                  FROM (SELECT  visit_id, visit_page_num, REGEXP_EXTRACT_ALL(product_list, '[0-9]+') AS Product_List, evar17, partition_date 
+                        FROM `analytics-oed-thd.Staged_Tables.Cart_Add` a
+                        WHERE
+                        1=1
+                        AND prop17 = 'plp'
+                        AND (partition_date BETWEEN Pre_Period_Start AND Pre_Period_End OR partition_date BETWEEN Post_Period_Start AND Post_Period_End)
+                        )
+                          CROSS JOIN UNNEST(Product_List) AS Product) list 
+                            INNER JOIN`analytics-oed-thd.Events.EVENTS_CEX_PRODUCTS` b on trim(cast(INTERNET_SKU_NBR as string)) = trim(list.product)
+                            WHERE partition_date between period_start and b.Period_end
+
+      GROUP BY 1,2,3,4,5
+      )
+      
+      ;
+      
+       -----CREATE TABLE WITH ALL CART ADD FROM PIP VISITS WITH RELEVANT DCS------
+      
+    CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_CART_ADDS_FROM_PIP` AS 
+    
+ (SELECT visit_id, event,  class_number class_nbr, substr(trim(cast(department_number as string)),0,2) as dept_nbr, max(visit_page_num) as Max_Page_Num,   min(visit_page_num) as min_page_num
+
+            FROM (SELECT  visit_id, visit_page_num, Product, partition_date
+                  FROM (SELECT  visit_id, visit_page_num, REGEXP_EXTRACT_ALL(product_list, '[0-9]+') as product_list, evar17, partition_date
+                        FROM `analytics-oed-thd.Staged_Tables.Cart_Add` a
+                        WHERE
+                        1=1
+                        AND prop17 = 'pip'
+                        AND (partition_date BETWEEN Pre_Period_Start AND Pre_Period_End OR partition_date BETWEEN Post_Period_Start AND Post_Period_End))
+                         CROSS JOIN UNNEST(Product_List) AS Product) list 
+     INNER JOIN`analytics-oed-thd.Events.EVENTS_CEX_PRODUCTS` b on trim(cast(INTERNET_SKU_NBR as string)) = trim(list.product)
+                            WHERE partition_date between period_start and b.Period_end
+      GROUP BY 1,2,3,4
+      )  
+   
+   ;
+   
+    -----CREATE TABLE WITH ALL ORDERS WITH RELEVANT DCS------
+   
+   CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_ORDERS` AS 
+   
+   (select 
+   b.visit_id, order_number, event, Time_Period, class_number class_nbr, substr(trim(cast(department_number as string)),0,2) as dept_nbr, sum(Gross_Demand) Demand
+
+      froM `analytics-oed-thd.Events.EVENTS_CEX_PRODUCTS` CEX 
+          INNER JOIN  `analytics-views-thd.NURO.ONLINE_ORDER_ITEMS` visits on trim(cast(CEX.INTERNET_SKU_NBR as string)) = trim(cast(visits.INTERNET_SKU_NBR as string))
+          INNER JOIN  `pr-edw-views-thd.NURO.ONLN_ORD_DTL` b on upper(OSMORDER) = upper(visits.Order_Number)
+
+where 1=1
+AND (order_date BETWEEN Pre_Period_Start AND Pre_Period_End OR order_date BETWEEN Post_Period_Start AND Post_Period_End)
+AND (ORD_CRT_DT BETWEEN Pre_Period_Start AND Pre_Period_End OR ORD_CRT_DT BETWEEN Post_Period_Start AND Post_Period_End)
+ AND cast(order_date as date) between period_start and CEX.Period_end
+  AND cast(ORD_CRT_DT as date) between period_start and CEX.Period_end
+  
+GROUP BY 1,2,3,4,5,6
+)
+
+;
+
+ -----CREATE TABLE WITH ALL PROD IMP VISITS WITH RELEVANT DCS------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_PRODUCT_IMPRESSIONS` AS 
+
+    (SELECT a.evar17, a.visit_id,  OMSID, a.visit_page_num, class_number class_nbr, substr(trim(cast(department_number as string)),0,2) as dept_nbr, event, max(visit_page_num) max_page_num, min(visit_page_num) min_page_num
+                 
+                       FROM 
+                      `analytics-oed-thd.Events.EVENTS_CEX_PRODUCTS` b
+                       INNER JOIN `analytics-oed-thd.Staged_Tables.PIP` a on trim(cast(a.OMSID as string)) = trim(cast(b.INTERNET_SKU_NBR as string))
+                       WHERE 1=1
+                       AND (partition_date BETWEEN Pre_Period_Start AND Pre_Period_End OR partition_date BETWEEN Post_Period_Start AND Post_Period_End) 
+                       AND partition_date between period_start and b.Period_end
+                       
+                        
+         GROUP BY 1,2,3,4,5,6,7)
+         
+;
+ -----CREATE TABLE WITH ALL PLP VISITS WITH RELEVANT DCS PROD IMPRESSIONS, USED IN CAT PAGE DATA FOR % TO PLP------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_PLP` AS
+
+(select visit_id, class_number class_nbr, substr(trim(cast(department_number as string)),0,2) as dept_nbr, event, max(visit_page_num) max_page_num, min(visit_page_num) min_page_num
+
+FROM
+(SELECT 
+visit_id, Product, visit_page_num, partition_date
+           FROM (SELECT evar17, visit_id, REGEXP_EXTRACT_ALL(product_list, '[0-9]{9}') AS Product_List, visit_page_num, partition_date
+                 FROM (SELECT a.evar17, a.visit_id, a.product_list, visit_page_num, partition_date
+                       FROM `analytics-oed-thd.Staged_Tables.Cat_PLP`  a
+                       WHERE 1=1
+                       and prop30 = 'plp'
+                       AND (partition_date BETWEEN Pre_Period_Start AND Pre_Period_End OR partition_date BETWEEN Post_Period_Start AND Post_Period_End)      
+                        ))
+           CROSS JOIN UNNEST(Product_List) AS Product) list
+ INNER JOIN`analytics-oed-thd.Events.EVENTS_CEX_PRODUCTS` CEX on trim(cast(INTERNET_SKU_NBR as string)) = trim(Product)
+      WHERE 
+      1=1
+      AND partition_date between period_start and CEX.Period_end
+         GROUP BY 1,2,3,4--,3,4
+         )
+
+;
+
+------COMBINE ABOVE TABLES TO CREATE FUNNEL METRICS, AT A PAGE LEVEL------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_PAGE_LEVEL` AS
+
+(SELECT TopVisit.event, TopVisit.Time_Period, TopVisit.username, TopVisit.marketing_channel, TopVisit.partition_date, TopVisit.dept_nbr, TopVisit.class_nbr, TopVisit.evar17, TopVisit.breadcrumb_type, TopVisit.visit_id TopVisit_visit_id, EVENTS_PRODUCT_IMPRESSIONS.visit_id ProductImpressions_visit_id, EVENTS_PLP.visit_id AllPLPVisits_visit_id, EVENTS_PIP.visit_id pip_visit_id, EVENTS_CART_ADDS_FROM_PLP.visit_id CartAddFromPLPVisits_visit_id, EVENTS_CART_ADDS_FROM_PIP.visit_id CartAddFromPIPVisits_visit_id, EVENTS_ORDERS.visit_id orders_visit_id, order_number, Demand
+
+
+FROM
+(SELECT * FROM `analytics-oed-thd.Events.EVENTS_TOP_VISIT`)  TopVisit
+
+
+      LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_PLP`) EVENTS_PLP
+      ON TopVisit.visit_id = EVENTS_PLP.visit_id and TopVisit.event = EVENTS_PLP.event
+      and TopVisit.dept_nbr = trim(EVENTS_PLP.dept_nbr) and TopVisit.class_nbr = trim(EVENTS_PLP.class_nbr) AND EVENTS_PLP.Max_Page_Num > TopVisit.Min_Page_Num 
+      
+      LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_PRODUCT_IMPRESSIONS`) EVENTS_PRODUCT_IMPRESSIONS
+      ON TopVisit.visit_id = EVENTS_PRODUCT_IMPRESSIONS.visit_id and TopVisit.event = EVENTS_PRODUCT_IMPRESSIONS.event
+      and TopVisit.dept_nbr = trim(EVENTS_PRODUCT_IMPRESSIONS.dept_nbr) and TopVisit.class_nbr = trim(EVENTS_PRODUCT_IMPRESSIONS.class_nbr) AND EVENTS_PRODUCT_IMPRESSIONS.Max_Page_Num > TopVisit.Min_Page_Num  
+
+    LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_PIP`) EVENTS_PIP
+      ON TopVisit.visit_id = EVENTS_PIP.visit_id and TopVisit.event = EVENTS_PIP.event 
+      and TopVisit.dept_nbr = trim(EVENTS_PIP.dept_nbr) and TopVisit.class_nbr = trim(EVENTS_PIP.class_nbr) AND EVENTS_PIP.Max_Page_Num > TopVisit.Min_Page_Num
+
+      
+    LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_CART_ADDS_FROM_PLP`) EVENTS_CART_ADDS_FROM_PLP 
+      ON EVENTS_CART_ADDS_FROM_PLP.visit_id = TopVisit.visit_id and TopVisit.event = EVENTS_CART_ADDS_FROM_PLP.event 
+      and TopVisit.dept_nbr = trim(EVENTS_CART_ADDS_FROM_PLP.dept_nbr) and TopVisit.class_nbr = trim(EVENTS_CART_ADDS_FROM_PLP.class_nbr) and EVENTS_CART_ADDS_FROM_PLP.Max_Page_Num > TopVisit.Min_Page_Num
+      
+    LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_CART_ADDS_FROM_PIP`) EVENTS_CART_ADDS_FROM_PIP 
+      ON EVENTS_CART_ADDS_FROM_PIP.visit_id = EVENTS_PIP.visit_id and EVENTS_CART_ADDS_FROM_PIP.event = EVENTS_PIP.event 
+      and EVENTS_PIP.dept_nbr = trim(EVENTS_CART_ADDS_FROM_PIP.dept_nbr) and EVENTS_PIP.class_nbr = trim(EVENTS_CART_ADDS_FROM_PIP.class_nbr) and EVENTS_CART_ADDS_FROM_PIP.Max_Page_Num > EVENTS_PIP.Min_Page_Num
+    
+    LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_ORDERS`) EVENTS_ORDERS 
+      ON TopVisit.visit_id = EVENTS_ORDERS.visit_id and TopVisit.event = EVENTS_ORDERS.event
+      and TopVisit.class_nbr = trim(EVENTS_ORDERS.class_nbr) and TopVisit.dept_nbr = trim(EVENTS_ORDERS.dept_nbr)
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18
+
+)
+;
+
+------COMBINE ABOVE TABLES TO CREATE FUNNEL METRICS, AT AN AGGREGATE LEVEL------
+
+   
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_AGGREGATE` AS
+
+
+(SELECT TopVisit.event, TopVisit.Time_Period, TopVisit.username, TopVisit.marketing_channel, TopVisit.partition_date, TopVisit.breadcrumb_type, TopVisit.visit_id TopVisit_visit_id, EVENTS_PRODUCT_IMPRESSIONS.visit_id ProductImpressions_visit_id, EVENTS_PLP.visit_id AllPLPVisits_visit_id, EVENTS_PIP.visit_id pip_visit_id, EVENTS_CART_ADDS_FROM_PLP.visit_id CartAddFromPLPVisits_visit_id, EVENTS_CART_ADDS_FROM_PIP.visit_id CartAddFromPIPVisits_visit_id, EVENTS_ORDERS.visit_id orders_visit_id, order_number, Demand
+
+--Is there a reason I took out dept/class for aggregate/does it matter?
+
+
+FROM
+(SELECT          
+    Time_Period, event, marketing_channel, class_nbr, dept_nbr,
+    username, partition_date, visit_id, breadcrumb_type, Min_Page_Num, Max_Page_Num FROM `analytics-oed-thd.Events.EVENTS_TOP_VISIT` GROUP BY 1,2,3,4,5,6,7,8,9,10,11)  TopVisit
+
+
+      LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_PLP`) EVENTS_PLP
+      ON TopVisit.visit_id = EVENTS_PLP.visit_id and TopVisit.event = EVENTS_PLP.event
+      and TopVisit.dept_nbr = trim(EVENTS_PLP.dept_nbr) and TopVisit.class_nbr = trim(EVENTS_PLP.class_nbr) AND EVENTS_PLP.Max_Page_Num > TopVisit.Min_Page_Num 
+      
+      LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_PRODUCT_IMPRESSIONS`) EVENTS_PRODUCT_IMPRESSIONS
+      ON TopVisit.visit_id = EVENTS_PRODUCT_IMPRESSIONS.visit_id and TopVisit.event = EVENTS_PRODUCT_IMPRESSIONS.event
+      and TopVisit.dept_nbr = trim(EVENTS_PRODUCT_IMPRESSIONS.dept_nbr) and TopVisit.class_nbr = trim(EVENTS_PRODUCT_IMPRESSIONS.class_nbr) AND EVENTS_PRODUCT_IMPRESSIONS.Max_Page_Num > TopVisit.Min_Page_Num  
+
+    LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_PIP`) EVENTS_PIP
+      ON TopVisit.visit_id = EVENTS_PIP.visit_id and TopVisit.event = EVENTS_PIP.event 
+      and TopVisit.dept_nbr = trim(EVENTS_PIP.dept_nbr) and TopVisit.class_nbr = trim(EVENTS_PIP.class_nbr) AND EVENTS_PIP.Max_Page_Num > TopVisit.Min_Page_Num
+
+      
+    LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_CART_ADDS_FROM_PLP`) EVENTS_CART_ADDS_FROM_PLP 
+      ON EVENTS_CART_ADDS_FROM_PLP.visit_id = TopVisit.visit_id and TopVisit.event = EVENTS_CART_ADDS_FROM_PLP.event 
+      and TopVisit.dept_nbr = trim(EVENTS_CART_ADDS_FROM_PLP.dept_nbr) and TopVisit.class_nbr = trim(EVENTS_CART_ADDS_FROM_PLP.class_nbr) and EVENTS_CART_ADDS_FROM_PLP.Max_Page_Num > TopVisit.Min_Page_Num
+      
+    LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_CART_ADDS_FROM_PIP`) EVENTS_CART_ADDS_FROM_PIP 
+      ON EVENTS_CART_ADDS_FROM_PIP.visit_id = EVENTS_PIP.visit_id and EVENTS_CART_ADDS_FROM_PIP.event = EVENTS_PIP.event 
+      and EVENTS_PIP.dept_nbr = trim(EVENTS_CART_ADDS_FROM_PIP.dept_nbr) and EVENTS_PIP.class_nbr = trim(EVENTS_CART_ADDS_FROM_PIP.class_nbr) and EVENTS_CART_ADDS_FROM_PIP.Max_Page_Num > EVENTS_PIP.Min_Page_Num
+    
+    LEFT JOIN
+ (SELECT * FROM `analytics-oed-thd.Events.EVENTS_ORDERS`) EVENTS_ORDERS 
+      ON TopVisit.visit_id = EVENTS_ORDERS.visit_id and TopVisit.event = EVENTS_ORDERS.event
+      and TopVisit.class_nbr = trim(EVENTS_ORDERS.class_nbr) and TopVisit.dept_nbr = trim(EVENTS_ORDERS.dept_nbr)
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+
+)
+;
+
+
+------PULL AGGREGATE PRE-PERIOD PLP DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.PLP_Performance_Aggregate_Pre_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+--TopVisit.evar17,
+      username AS Experience_Type,
+      marketing_channel,
+      COUNT(DISTINCT TopVisit_visit_id) PLP_Visits,
+      COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+
+FROM 
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_AGGREGATE` WHERE breadcrumb_type = 'plp' AND Time_Period = 'pre') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,13
+
+;
+
+
+------PULL PAGE LEVEL PRE-PERIOD PLP DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.PLP_Performance_Page_Level_Pre_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+evar17,
+      username AS Experience_Type,
+      marketing_channel,
+      COUNT(DISTINCT TopVisit_visit_id) PLP_Visits,
+      COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+      
+      FROM
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_PAGE_LEVEL` WHERE breadcrumb_type = 'plp' AND Time_Period = 'pre') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,6,14
+
+;
+
+------PULL AGGREGATE PRE-PERIOD CATEGORY PAGE DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Cat_Page_Performance_Aggregate_Pre_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+--TopVisit.evar17,
+      username AS Experience_Type,
+      marketing_channel,
+        'CatPage' CatPage_Entry,
+      COUNT(DISTINCT TopVisit_visit_id) CatPage_Visits,
+      COUNT(DISTINCT if(ProductImpressions_visit_id is not null or AllPLPVisits_visit_id is not null,TopVisit_visit_id,null)) ProductImpressions,
+      COUNT(DISTINCT AllPLPVisits_visit_id) PLP_Visits,
+      COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+
+FROM 
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_AGGREGATE` WHERE breadcrumb_type = 'category' AND Time_Period = 'pre') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,6,16
+
+;
+
+
+------PULL PAGE LEVEL PRE-PERIOD CATEGORY PAGE DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Cat_Page_Performance_Page_Level_Pre_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+partition_date,
+Time_Period,
+evar17,
+      username AS Experience_Type,
+      marketing_channel,
+        'CatPage' CatPage_Entry,
+      COUNT(DISTINCT TopVisit_visit_id) CatPage_Visits,
+      COUNT(DISTINCT if(ProductImpressions_visit_id is not null or AllPLPVisits_visit_id is not null,TopVisit_visit_id,null)) ProductImpressions,
+      COUNT(DISTINCT AllPLPVisits_visit_id) PLP_Visits,
+      COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+      
+      FROM
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_PAGE_LEVEL` WHERE breadcrumb_type = 'category' AND Time_Period = 'pre') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,6,7,17
+
+;
+
+------PULL AGGREGATE PRE-PERIOD EVENT PAGE DATA------
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Event_Page_Performance_Aggregate_Pre_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+--TopVisit.evar17,
+      username AS Experience_Type,
+      marketing_channel,
+       COUNT(DISTINCT TopVisit_visit_id) Event_Page_Visits,
+       COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+
+FROM 
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_AGGREGATE` WHERE breadcrumb_type = 'event' AND Time_Period = 'pre') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,13
+
+;
+
+
+------PULL PAGE LEVEL PRE-PERIOD EVENT PAGE DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Event_Page_Performance_Page_Level_Pre_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+evar17,
+      username AS Experience_Type,
+      marketing_channel,
+        COUNT(DISTINCT TopVisit_visit_id) Event_Page_Visits,
+       COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+      
+      FROM
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_PAGE_LEVEL` WHERE breadcrumb_type = 'event' AND Time_Period = 'pre') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,6,14
+
+;
+
+------PULL AGGREGATE PRE-PERIOD TOTAL HOLIDAY DATA------
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Total_Holiday_Performance_Aggregate_Pre_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+--TopVisit.evar17,
+      username AS Experience_Type,
+      marketing_channel,
+       COUNT(DISTINCT TopVisit_visit_id) Event_Page_Visits,
+       COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+
+FROM 
+
+(select event, Time_Period, username, marketing_channel, partition_date, TopVisit_visit_id, ProductImpressions_visit_id, AllPLPVisits_visit_id, pip_visit_id, CartAddFromPLPVisits_visit_id, CartAddFromPIPVisits_visit_id, orders_visit_id, order_number, Demand FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_AGGREGATE` WHERE --breadcrumb_type = 'plp' AND 
+Time_Period = 'pre'
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14) TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,13
+
+;
+
+------PULL AGGREGATE POST-PERIOD PLP DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.PLP_Performance_Aggregate_Post_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+--TopVisit.evar17,
+      username AS Experience_Type,
+      marketing_channel,
+      COUNT(DISTINCT TopVisit_visit_id) PLP_Visits,
+      COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+
+FROM 
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_AGGREGATE` WHERE breadcrumb_type = 'plp' AND Time_Period = 'post') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,13
+
+;
+
+
+------PULL PAGE LEVEL POST-PERIOD PLP DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.PLP_Performance_Page_Level_Post_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+evar17,
+      username AS Experience_Type,
+      marketing_channel,
+      COUNT(DISTINCT TopVisit_visit_id) PLP_Visits,
+      COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+      
+      FROM
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_PAGE_LEVEL` WHERE breadcrumb_type = 'plp' AND Time_Period = 'post') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,6,14
+
+;
+
+------PULL AGGREGATE POST-PERIOD CATEGORY PAGE DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Cat_Page_Performance_Aggregate_Post_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+--TopVisit.evar17,
+      username AS Experience_Type,
+      marketing_channel,
+        'CatPage' CatPage_Entry,
+      COUNT(DISTINCT TopVisit_visit_id) CatPage_Visits,
+      COUNT(DISTINCT if(ProductImpressions_visit_id is not null or AllPLPVisits_visit_id is not null,TopVisit_visit_id,null)) ProductImpressions,
+      COUNT(DISTINCT AllPLPVisits_visit_id) PLP_Visits,
+      COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+
+FROM 
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_AGGREGATE` WHERE breadcrumb_type = 'category' AND Time_Period = 'post') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,6,16
+
+;
+
+
+------PULL PAGE LEVEL POST-PERIOD CATEGORY PAGE DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Cat_Page_Performance_Page_Level_Post_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+partition_date,
+Time_Period,
+evar17,
+      username AS Experience_Type,
+      marketing_channel,
+        'CatPage' CatPage_Entry,
+      COUNT(DISTINCT TopVisit_visit_id) CatPage_Visits,
+      COUNT(DISTINCT if(ProductImpressions_visit_id is not null or AllPLPVisits_visit_id is not null,TopVisit_visit_id,null)) ProductImpressions,
+      COUNT(DISTINCT AllPLPVisits_visit_id) PLP_Visits,
+      COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+      
+      FROM
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_PAGE_LEVEL` WHERE breadcrumb_type = 'category' AND Time_Period = 'post') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,6,7,17
+
+;
+
+------PULL AGGREGATE POST-PERIOD EVENT PAGE DATA------
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Event_Page_Performance_Aggregate_Post_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+--TopVisit.evar17,
+      username AS Experience_Type,
+      marketing_channel,
+       COUNT(DISTINCT TopVisit_visit_id) Event_Page_Visits,
+       COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+
+FROM 
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_AGGREGATE` WHERE breadcrumb_type = 'event' AND Time_Period = 'post') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,13
+
+;
+
+
+------PULL PAGE LEVEL POST-PERIOD EVENT PAGE DATA------
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Event_Page_Performance_Page_Level_Post_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+evar17,
+      username AS Experience_Type,
+      marketing_channel,
+        COUNT(DISTINCT TopVisit_visit_id) Event_Page_Visits,
+       COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+      
+      FROM
+
+(select * FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_PAGE_LEVEL` WHERE breadcrumb_type = 'event' AND Time_Period = 'post') TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,6,14
+
+;
+
+------PULL AGGREGATE POST-PERIOD TOTAL HOLIDAY DATA------
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.Total_Holiday_Performance_Aggregate_Post_Period_SBE_Test` AS
+
+SELECT       
+TopVisit.Event,
+ partition_date,
+  Time_Period,
+--TopVisit.evar17,
+      username AS Experience_Type,
+      marketing_channel,
+       COUNT(DISTINCT TopVisit_visit_id) Event_Page_Visits,
+       COUNT(DISTINCT pip_visit_id) PIP_Visits,
+      count(DISTINCT CartAddFromPLPVisits_visit_id) as CartAddsFromPLP,
+      count(DISTINCT CartAddFromPIPVisits_visit_id) as CartAddsFromPIP,
+      Count(distinct orders_visit_id) as Order_Visits,
+      Count(distinct order_number) as Orders,
+      SUM(Demand) as Demand,
+      Start.period_start as Post_Event_Start_Date
+
+FROM 
+
+(select event, Time_Period, username, marketing_channel, partition_date, TopVisit_visit_id, ProductImpressions_visit_id, AllPLPVisits_visit_id, pip_visit_id, CartAddFromPLPVisits_visit_id, CartAddFromPIPVisits_visit_id, orders_visit_id, order_number, Demand FROM `analytics-oed-thd.Events.EVENTS_TOTAL_FUNNEL_AGGREGATE` WHERE --breadcrumb_type = 'plp' AND 
+Time_Period = 'post'
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14) TopVisit
+
+LEFT JOIN (SELECT Event, period_start FROM `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` where time_period = 'post' GROUP BY 1,2) start on TopVisit.Event = Start.Event
+
+where START.period_start IS NOT NULL
+
+GROUP BY 1,2,3,4,5,13;
+
+end if;
