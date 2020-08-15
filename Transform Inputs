@@ -1,0 +1,190 @@
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.events_table_to_unnest`
+
+AS
+
+SELECT
+event_name, larger_event, event_lead, event_page_perf, department department_splt, class class_split, subclass subclass_split, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29 evar29_splt, sku_list sku_list_split, entrydate, new_overwrite
+
+
+FROM
+`analytics-oed-thd.CBR.events_table`
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+
+;
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.events_table_with_subclasses_unnested`
+
+AS
+
+SELECT
+event_name, larger_event, event_lead, event_page_perf, department_splt, class_split, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29_splt, sku_list_split, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_to_unnest` a
+
+CROSS JOIN UNNEST(SPLIT(subclass_split, ', ')) subclass
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+;
+
+INSERT `analytics-oed-thd.Events.events_table_with_subclasses_unnested`
+
+SELECT 
+event_name, larger_event, event_lead, event_page_perf, department_splt, class_split, subclass_split subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29_splt, sku_list_split, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_to_unnest` a
+
+WHERE subclass_split is null
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+
+;
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.events_table_with_subclasses_classes_unnested`
+
+AS
+
+SELECT
+event_name, larger_event, event_lead, event_page_perf, department_splt, class, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29_splt, sku_list_split, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_with_subclasses_unnested` a
+
+CROSS JOIN UNNEST(SPLIT(class_split, ', ')) class
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+;
+
+INSERT `analytics-oed-thd.Events.events_table_with_subclasses_classes_unnested`
+
+SELECT 
+event_name, larger_event, event_lead, event_page_perf, department_splt, class_split class, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29_splt, sku_list_split, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_with_subclasses_unnested` a
+
+WHERE class_split is null
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+
+;
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.events_table_with_subclasses_classes_unnested`
+
+AS
+
+SELECT
+event_name, larger_event, event_lead, event_page_perf, department_splt, class, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29_splt, sku_list_split, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_with_subclasses_unnested` a
+
+CROSS JOIN UNNEST(SPLIT(class_split, ', ')) class
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+;
+
+INSERT `analytics-oed-thd.Events.events_table_with_subclasses_classes_unnested`
+
+SELECT 
+event_name, larger_event, event_lead, event_page_perf, department_splt, class_split class, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29_splt, sku_list_split, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_with_subclasses_unnested` a
+
+WHERE class_split is null
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+
+;
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.events_table_with_subclasses_classes_evar29_unnested`
+
+AS
+
+SELECT
+event_name, larger_event, event_lead, event_page_perf, department_splt, class, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, trim(evar29) evar29, sku_list_split, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_with_subclasses_classes_unnested` a
+
+CROSS JOIN UNNEST(SPLIT(evar29_splt, ', ')) evar29
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+;
+
+INSERT `analytics-oed-thd.Events.events_table_with_subclasses_classes_evar29_unnested`
+
+SELECT 
+event_name, larger_event, event_lead, event_page_perf, department_splt, class, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29_splt evar29, sku_list_split, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_with_subclasses_classes_unnested` a
+
+WHERE evar29_splt is null
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+
+;
+
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.events_table_with_subclasses_classes_evar29_SKU_List_unnested`
+
+AS
+
+SELECT 
+event_name, larger_event, event_lead, event_page_perf, department_splt, class, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29, SKU_List, entrydate, new_overwrite
+
+
+FROM
+
+(SELECT
+event_name, larger_event, event_lead, event_page_perf, department_splt, class, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29, REGEXP_EXTRACT_ALL(sku_list_split, '[0-9]+') SKU_List, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_with_subclasses_classes_evar29_unnested` a
+)
+CROSS JOIN UNNEST(SKU_List) AS SKU_List
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+
+;
+
+INSERT `analytics-oed-thd.Events.events_table_with_subclasses_classes_evar29_SKU_List_unnested`
+
+SELECT 
+event_name, larger_event, event_lead, event_page_perf, department_splt, class, subclass, pre_post, period_start, period_end, breadcrumb, breadcrumb_type, prop30, evar29, sku_list_split sku_list, entrydate, new_overwrite
+
+
+from
+`analytics-oed-thd.Events.events_table_with_subclasses_classes_evar29_unnested` a
+
+WHERE sku_list_split is null
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+
+;
+
+
+CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_INPUTS_BREADCRUMBS_EXPANDED`
+
+AS
+
+
+SELECT
+event_name as event, larger_event, event_lead, event_page_perf, department_splt department_number, class class_number, subclass subclass_number, pre_post time_period, period_start, period_end, a.evar17 Breadcrumb, breadcrumb_type, prop30, evar29, sku_list, entrydate, new_overwrite
+
+
+FROM `analytics-oed-thd.Events.events_table_with_subclasses_classes_evar29_SKU_List_unnested` 
+INNER JOIN `analytics-oed-thd.Events.EVENTS_BREADCRUMBS_EXPANDED` a on if(substr(reverse(breadcrumb),0,1) = '>',trim(UPPER(a.evar17)) like concat(substr(trim(UPPER(breadcrumb)),0,length(breadcrumb)-1),'%'),trim(UPPER(a.evar17)) = trim(UPPER(breadcrumb)))
+
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+
+
