@@ -15,7 +15,7 @@ WHERE event in (select event FROM `analytics-oed-thd.Events.EVENTS_INPUTS_BREADC
 
 ;
 
-
+---TEST EDITING IN GITHUB----
 ----CREATE INPUTS TABLE FOR TOTAL HOLIDAY LOOK------
 
 CREATE OR REPLACE TABLE `analytics-oed-thd.Events.EVENTS_CEX_TOTAL_HOLIDAY` AS
